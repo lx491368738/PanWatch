@@ -31,6 +31,7 @@ type HoverTipRow = {
   high: number
   low: number
   close: number
+  changePct: number | null
   ma5: number | null
   ma10: number | null
   ma20: number | null
@@ -349,13 +350,15 @@ export default function InteractiveKline(props: {
       wickDownColor: palette.down.bright,
     })
     candleSeries.setData(series.candles)
+    // Keep candles above the volume pane with a clear gap between them.
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.06, bottom: 0.3 } })
 
     const volSeries = addHistogram(chart, LW, {
       priceScaleId: 'vol',
       priceFormat: { type: 'volume' },
     })
     volSeries.setData(series.volumes)
-    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } })
     const volMa5Series = addLine(chart, LW, { priceScaleId: 'vol', color: 'rgba(245, 158, 11, 0.9)', lineWidth: 1 })
     const volMa10Series = addLine(chart, LW, { priceScaleId: 'vol', color: 'rgba(14, 165, 233, 0.9)', lineWidth: 1 })
 
@@ -495,13 +498,17 @@ export default function InteractiveKline(props: {
 
       const k = series.klines[idx]
       const tooltipWidth = 280
-      const tooltipHeight = 152
+      const tooltipHeight = 170
       let x = point.x + 12
       let y = point.y + 12
       if (x + tooltipWidth > container.clientWidth - 6) x = point.x - tooltipWidth - 12
       if (y + tooltipHeight > container.clientHeight - 6) y = point.y - tooltipHeight - 12
       x = Math.max(6, Math.min(x, Math.max(6, container.clientWidth - tooltipWidth - 6)))
       y = Math.max(6, Math.min(y, Math.max(6, container.clientHeight - tooltipHeight - 6)))
+
+      const prevClose = idx > 0 ? series.klines[idx - 1].close : null
+      const changePct =
+        prevClose != null && prevClose !== 0 ? ((k.close - prevClose) / prevClose) * 100 : null
 
       setHoverTip({
         visible: true,
@@ -513,6 +520,7 @@ export default function InteractiveKline(props: {
           high: k.high,
           low: k.low,
           close: k.close,
+          changePct,
           ma5: series.ma5[idx],
           ma10: series.ma10[idx],
           ma20: series.ma20[idx],
@@ -639,6 +647,14 @@ export default function InteractiveKline(props: {
               <span>{tr('hover.close')} <span className="font-mono text-foreground">{hoverTip.row.close.toFixed(2)}</span></span>
               <span>{tr('hover.high')} <span className="font-mono text-foreground">{hoverTip.row.high.toFixed(2)}</span></span>
               <span>{tr('hover.low')} <span className="font-mono text-foreground">{hoverTip.row.low.toFixed(2)}</span></span>
+              <span>
+                {tr('hover.change')}{' '}
+                <span className={`font-mono ${hoverTip.row.changePct != null ? marketSignTextClass(hoverTip.row.changePct) : 'text-foreground'}`}>
+                  {hoverTip.row.changePct != null
+                    ? `${hoverTip.row.changePct >= 0 ? '+' : ''}${hoverTip.row.changePct.toFixed(2)}%`
+                    : '--'}
+                </span>
+              </span>
               <span>{tr('hover.ma5')} <span className="font-mono text-foreground">{hoverTip.row.ma5 != null ? hoverTip.row.ma5.toFixed(2) : '--'}</span></span>
               <span>{tr('hover.ma10')} <span className="font-mono text-foreground">{hoverTip.row.ma10 != null ? hoverTip.row.ma10.toFixed(2) : '--'}</span></span>
               <span>{tr('hover.ma20')} <span className="font-mono text-foreground">{hoverTip.row.ma20 != null ? hoverTip.row.ma20.toFixed(2) : '--'}</span></span>
