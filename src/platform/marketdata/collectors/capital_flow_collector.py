@@ -38,9 +38,14 @@ class CapitalFlowCollector:
     def __init__(self, market: MarketCode):
         self.market = market
 
-    def get_capital_flow(self, symbol: str) -> CapitalFlow | None:
-        """获取单只股票的资金流向(经 marketdata 包统一接入 + TTL缓存)。"""
-        cache_key = f"{self.market.value}:{symbol}"
+    def get_capital_flow(self, symbol: str, *, ttl_sec: float | None = None) -> CapitalFlow | None:
+        """获取单只股票的资金流向(经 marketdata 包统一接入 + TTL缓存)。
+
+        ``ttl_sec`` 默认 600（日级慢变）；盘中采样曲线应传入更短 TTL（如 5），
+        并使用独立 cache key，避免被日级长缓存挡住刷新。
+        """
+        effective_ttl = 600.0 if ttl_sec is None else float(ttl_sec)
+        cache_key = f"{self.market.value}:{symbol}:ttl{int(effective_ttl)}"
         cached = _FLOW_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -59,7 +64,7 @@ class CapitalFlowCollector:
             small_net_inflow=md_cf.small_net_inflow,
             main_net_5d=md_cf.main_net_5d,
         )
-        _FLOW_CACHE.set(cache_key, capital_flow)
+        _FLOW_CACHE.set(cache_key, capital_flow, ttl_sec=effective_ttl)
         return capital_flow
 
     def get_capital_flow_summary(self, symbol: str) -> dict:
