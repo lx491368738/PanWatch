@@ -28,6 +28,7 @@ from src.modules.assistant.task_runner import assistant_task_runner
 from src.modules.assistant.export_jobs import context_export_runner
 from src.modules.automation.api import agents, suggestions, templates
 from src.modules.market.api import (
+    breadth_alerts,
     discovery,
     klines,
     market,
@@ -147,6 +148,12 @@ app.include_router(
     price_alerts.router,
     prefix="/api/price-alerts",
     tags=["price-alerts"],
+    dependencies=protected,
+)
+app.include_router(
+    breadth_alerts.router,
+    prefix="/api/breadth-alerts",
+    tags=["breadth-alerts"],
     dependencies=protected,
 )
 app.include_router(

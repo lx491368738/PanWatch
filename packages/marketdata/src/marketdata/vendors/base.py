@@ -89,3 +89,9 @@ class NorthboundVendor(Vendor):
     """北向资金 vendor:fetch 返回 list[NorthboundItem]。市场级(symbols 可空)。"""
 
     pass
+
+
+class BreadthVendor(Vendor):
+    """市场涨跌家数 vendor:fetch 返回 list[BreadthSnapshot]。市场级(symbols 可空)。"""
+
+    pass

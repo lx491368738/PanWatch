@@ -7,6 +7,7 @@ export const navigation = {
     paperTrading: '模拟盘',
     assistant: '助手',
     alerts: '提醒',
+    marketEmotion: '市场情绪',
     agents: 'Agent',
     evaluations: '验证中心',
     history: '历史',

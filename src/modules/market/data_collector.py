@@ -561,6 +561,9 @@ class DataCollectorManager:
         elif source.type == "northbound":
             return await self._test_northbound_source(source)
 
+        elif source.type == "breadth":
+            return await self._test_breadth_source(source)
+
         return CollectorResult(
             success=False, error=f"不支持的数据源类型: {source.type}"
         )
@@ -577,6 +580,7 @@ class DataCollectorManager:
     _SHAREHOLDERS_PACKAGE_VENDORS = PACKAGE_VENDORS_BY_TYPE["shareholders"]
     _DIVIDEND_PACKAGE_VENDORS = PACKAGE_VENDORS_BY_TYPE["dividend"]
     _NORTHBOUND_PACKAGE_VENDORS = PACKAGE_VENDORS_BY_TYPE["northbound"]
+    _BREADTH_PACKAGE_VENDORS = PACKAGE_VENDORS_BY_TYPE["breadth"]
 
     async def _test_kline_source(
         self, source: DataSource, test_symbols: list[str]
@@ -1035,6 +1039,51 @@ class DataCollectorManager:
             ],
             count=len(items),
             error="" if items else "未获取到北向资金数据",
+        )
+
+    async def _test_breadth_source(self, source: DataSource) -> CollectorResult:
+        """测试市场涨跌家数源:市场级,不按 symbols 过滤。"""
+        from marketdata import MarketData, SourceConfig, StaticConfigProvider
+
+        if source.provider not in self._BREADTH_PACKAGE_VENDORS:
+            return CollectorResult(
+                success=False,
+                error=f"provider {source.provider} 无对应 vendor，包内未实现该涨跌家数源",
+            )
+
+        cfg = source.config or {}
+        md = MarketData(
+            config=StaticConfigProvider(
+                {
+                    "breadth": [
+                        SourceConfig(vendor=source.provider, config=cfg, enabled=True)
+                    ]
+                }
+            )
+        )
+
+        try:
+            items = await asyncio.to_thread(md.breadth)
+        except Exception as e:
+            return CollectorResult(success=False, error=str(e))
+
+        return CollectorResult(
+            success=len(items) > 0,
+            data=[
+                {
+                    "market": i.market,
+                    "up_count": i.up_count,
+                    "down_count": i.down_count,
+                    "flat_count": i.flat_count,
+                    "limit_up_count": i.limit_up_count,
+                    "limit_down_count": i.limit_down_count,
+                    "total_count": i.total_count,
+                    "up_pct": i.up_pct,
+                }
+                for i in items[:10]
+            ],
+            count=len(items),
+            error="" if items else "未获取到涨跌家数数据",
         )
 
 

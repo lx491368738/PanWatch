@@ -2238,6 +2238,121 @@ def _m139_retire_session_legacy(conn: Connection) -> None:
                      {"id": identity, "config": json.dumps(config, ensure_ascii=False)})
 
 
+def _m140_market_breadth_and_alerts(conn: Connection) -> None:
+    """Minute market breadth samples + market-level breadth alert tables."""
+    conn.execute(
+        text(
+            """
+CREATE TABLE IF NOT EXISTS market_breadth_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  market TEXT NOT NULL DEFAULT 'CN',
+  trade_date TEXT NOT NULL,
+  sampled_at TEXT NOT NULL,
+  up_count INTEGER NOT NULL DEFAULT 0,
+  down_count INTEGER NOT NULL DEFAULT 0,
+  flat_count INTEGER NOT NULL DEFAULT 0,
+  limit_up_count INTEGER NOT NULL DEFAULT 0,
+  limit_down_count INTEGER NOT NULL DEFAULT 0,
+  total_count INTEGER NOT NULL DEFAULT 0,
+  up_pct REAL,
+  source TEXT NOT NULL DEFAULT 'eastmoney',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_breadth_market_sampled_at UNIQUE(market, sampled_at)
+)
+"""
+        )
+    )
+    _create_index_if_missing(
+        conn,
+        "ix_breadth_market_date",
+        "CREATE INDEX ix_breadth_market_date ON market_breadth_samples(market, trade_date)",
+    )
+    conn.execute(
+        text(
+            """
+CREATE TABLE IF NOT EXISTS breadth_alert_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  market TEXT NOT NULL DEFAULT 'CN',
+  name TEXT NOT NULL DEFAULT '',
+  enabled INTEGER DEFAULT 1,
+  condition_type TEXT NOT NULL,
+  operator TEXT NOT NULL DEFAULT '<=',
+  threshold REAL NOT NULL,
+  lookback_minutes INTEGER NOT NULL DEFAULT 5,
+  market_hours_mode TEXT DEFAULT 'trading_only',
+  cooldown_minutes INTEGER DEFAULT 30,
+  max_triggers_per_day INTEGER DEFAULT 3,
+  repeat_mode TEXT DEFAULT 'repeat',
+  expire_at DATETIME,
+  notify_channel_ids TEXT DEFAULT '[]',
+  last_trigger_at DATETIME,
+  trigger_count_today INTEGER DEFAULT 0,
+  trigger_date TEXT DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+"""
+        )
+    )
+    _create_index_if_missing(
+        conn,
+        "ix_breadth_alert_enabled",
+        "CREATE INDEX ix_breadth_alert_enabled ON breadth_alert_rules(enabled)",
+    )
+    conn.execute(
+        text(
+            """
+CREATE TABLE IF NOT EXISTS breadth_alert_hits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rule_id INTEGER NOT NULL REFERENCES breadth_alert_rules(id) ON DELETE CASCADE,
+  trigger_time DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  trigger_bucket TEXT NOT NULL DEFAULT '',
+  trigger_snapshot TEXT DEFAULT '{}',
+  notify_success INTEGER DEFAULT 0,
+  notify_error TEXT DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_breadth_alert_rule_bucket UNIQUE(rule_id, trigger_bucket)
+)
+"""
+        )
+    )
+    _create_index_if_missing(
+        conn,
+        "ix_breadth_alert_hits_rule_time",
+        "CREATE INDEX ix_breadth_alert_hits_rule_time ON breadth_alert_hits(rule_id, trigger_time)",
+    )
+    conn.execute(
+        text(
+            """
+CREATE TABLE IF NOT EXISTS breadth_alert_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hit_id INTEGER NOT NULL REFERENCES breadth_alert_hits(id) ON DELETE CASCADE,
+  channel_key TEXT NOT NULL,
+  channel_id INTEGER,
+  event_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  next_attempt_at DATETIME,
+  lease_until DATETIME,
+  lease_token TEXT NOT NULL DEFAULT '',
+  error_code TEXT NOT NULL DEFAULT '',
+  delivered_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_breadth_alert_delivery_channel UNIQUE(hit_id, channel_key)
+)
+"""
+        )
+    )
+    _create_index_if_missing(
+        conn,
+        "ix_breadth_alert_delivery_due",
+        "CREATE INDEX ix_breadth_alert_delivery_due ON breadth_alert_deliveries(status, next_attempt_at, lease_until)",
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(101, "agent_config_kind_and_visibility", _m101_agent_config_kind),
     Migration(102, "backfill_agent_kind_data", _m102_backfill_agent_kind),
@@ -2278,6 +2393,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(137, "stock_asset_type", _m137_stock_asset_type),
     Migration(138, "investment_research_delivery", _m138_investment_research),
     Migration(139, "retire_session_legacy", _m139_retire_session_legacy),
+    Migration(140, "market_breadth_and_alerts", _m140_market_breadth_and_alerts),
 )
 
 

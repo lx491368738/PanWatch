@@ -1014,6 +1014,109 @@ class PriceAlertDelivery(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
+class MarketBreadthSample(Base):
+    """CN 市场涨跌家数分钟采样(上证+深成指口径)。"""
+
+    __tablename__ = "market_breadth_samples"
+    __table_args__ = (
+        UniqueConstraint("market", "sampled_at", name="uq_breadth_market_sampled_at"),
+        Index("ix_breadth_market_date", "market", "trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market = Column(String, nullable=False, default="CN")
+    trade_date = Column(String, nullable=False)  # YYYY-MM-DD Asia/Shanghai
+    sampled_at = Column(String, nullable=False)  # minute floor ISO, Asia/Shanghai
+    up_count = Column(Integer, nullable=False, default=0)
+    down_count = Column(Integer, nullable=False, default=0)
+    flat_count = Column(Integer, nullable=False, default=0)
+    limit_up_count = Column(Integer, nullable=False, default=0)
+    limit_down_count = Column(Integer, nullable=False, default=0)
+    total_count = Column(Integer, nullable=False, default=0)
+    up_pct = Column(Float, nullable=True)
+    source = Column(String, nullable=False, default="eastmoney")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class BreadthAlertRule(Base):
+    """市场广度提醒规则(市场级,无 stock_id)。"""
+
+    __tablename__ = "breadth_alert_rules"
+    __table_args__ = (Index("ix_breadth_alert_enabled", "enabled"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market = Column(String, nullable=False, default="CN")
+    name = Column(String, nullable=False, default="")
+    enabled = Column(Boolean, default=True)
+    condition_type = Column(String, nullable=False)  # breadth_up_pct | breadth_up_pct_change
+    operator = Column(String, nullable=False, default="<=")
+    threshold = Column(Float, nullable=False)
+    lookback_minutes = Column(Integer, nullable=False, default=5)  # for change type
+    market_hours_mode = Column(String, default="trading_only")
+    cooldown_minutes = Column(Integer, default=30)
+    max_triggers_per_day = Column(Integer, default=3)
+    repeat_mode = Column(String, default="repeat")  # once/repeat
+    expire_at = Column(DateTime, nullable=True)
+    notify_channel_ids = Column(JSON, default=[])
+    last_trigger_at = Column(DateTime, nullable=True)
+    trigger_count_today = Column(Integer, default=0)
+    trigger_date = Column(String, default="")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class BreadthAlertHit(Base):
+    """市场广度提醒命中记录。"""
+
+    __tablename__ = "breadth_alert_hits"
+    __table_args__ = (
+        Index("ix_breadth_alert_hits_rule_time", "rule_id", "trigger_time"),
+        UniqueConstraint("rule_id", "trigger_bucket", name="uq_breadth_alert_rule_bucket"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rule_id = Column(
+        Integer, ForeignKey("breadth_alert_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    trigger_time = Column(DateTime, server_default=func.now(), nullable=False)
+    trigger_bucket = Column(String, nullable=False, default="")
+    trigger_snapshot = Column(JSON, default={})
+    notify_success = Column(Boolean, default=False)
+    notify_error = Column(String, default="")
+    created_at = Column(DateTime, server_default=func.now())
+
+    rule = relationship("BreadthAlertRule")
+
+
+class BreadthAlertDelivery(Base):
+    """广度提醒分渠道投递 outbox。"""
+
+    __tablename__ = "breadth_alert_deliveries"
+    __table_args__ = (
+        UniqueConstraint("hit_id", "channel_key", name="uq_breadth_alert_delivery_channel"),
+        Index("ix_breadth_alert_delivery_due", "status", "next_attempt_at", "lease_until"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    hit_id = Column(
+        Integer, ForeignKey("breadth_alert_hits.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_key = Column(String, nullable=False)
+    channel_id = Column(Integer, nullable=True)
+    event_id = Column(String, nullable=False, unique=True)
+    title = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    next_attempt_at = Column(DateTime, nullable=True)
+    lease_until = Column(DateTime, nullable=True)
+    lease_token = Column(String, nullable=False, default="")
+    error_code = Column(String, nullable=False, default="")
+    delivered_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
 class PaperTradingAccount(Base):
     """模拟盘账户（单例）"""
 

@@ -217,6 +217,25 @@ class NorthboundItem:
 
 
 @dataclass
+class BreadthSnapshot:
+    """市场涨跌家数快照(东财上证+深成指 f104/f105/f106 相加 + 涨停/跌停池条数)。
+
+    口径≈沪深 A(不含北交所);交易所指数家数通常仍含 ST。
+    """
+
+    market: str = "CN"
+    up_count: int = 0
+    down_count: int = 0
+    flat_count: int = 0
+    limit_up_count: int = 0
+    limit_down_count: int = 0
+    total_count: int = 0
+    up_pct: float | None = None  # up / (up+down+flat) * 100; 分母为 0 则 None
+    timestamp: datetime = field(default_factory=datetime.now)
+    source: str = ""
+
+
+@dataclass
 class FlashNews:
     """快讯(7×24,对齐 cls/sina/eastmoney 快讯流)。市场级,symbols 可空。"""
 

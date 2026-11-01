@@ -23,6 +23,7 @@ def test_package_vendors_by_type_content():
         "shareholders": frozenset({"eastmoney"}),
         "dividend": frozenset({"eastmoney"}),
         "northbound": frozenset({"ths"}),
+        "breadth": frozenset({"eastmoney"}),
     }
 
 
@@ -41,6 +42,7 @@ def test_package_vendors_by_type_matches_actual_engine_registration():
         "shareholders": md._shareholders_engine,
         "dividend": md._dividend_engine,
         "northbound": md._northbound_engine,
+        "breadth": md._breadth_engine,
     }
     for datatype, engine in engines.items():
         assert set(engine.vendors.keys()) == PACKAGE_VENDORS_BY_TYPE[datatype]

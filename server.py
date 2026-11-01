@@ -29,6 +29,7 @@ from src.platform.ai.ai_failover import build_failover_client
 from src.platform.notifications.notifier import NotifierManager
 from src.modules.automation.agent_scheduler import AgentScheduler
 from src.modules.market.price_alert_scheduler import PriceAlertScheduler
+from src.modules.market.breadth_scheduler import BreadthScheduler
 from src.modules.paper_trading.paper_trading_scheduler import PaperTradingScheduler
 from src.modules.research.context_scheduler import ContextMaintenanceScheduler
 from src.modules.automation.agent_runs import record_agent_run
@@ -50,6 +51,7 @@ logger = logging.getLogger(__name__)
 # 全局 scheduler 实例，供 agents API 调用
 scheduler: AgentScheduler | None = None
 price_alert_scheduler: PriceAlertScheduler | None = None
+breadth_scheduler: BreadthScheduler | None = None
 paper_trading_scheduler: PaperTradingScheduler | None = None
 context_maintenance_scheduler: ContextMaintenanceScheduler | None = None
 
@@ -603,6 +605,18 @@ DATA_SOURCE_SEEDS: list[dict] = [
             "provider": "ths",
             "config": {
                 "description": "同花顺北向资金实时(东财已断供;深股通近期不可靠)。"
+            },
+            "enabled": True,
+            "priority": 0,
+            "supports_batch": False,
+            "test_symbols": [],
+        },
+        {
+            "name": "东财市场涨跌家数",
+            "type": "breadth",
+            "provider": "eastmoney",
+            "config": {
+                "description": "上证+深成指涨跌平家数 + 涨停/跌停池(≈沪深A,不含北交所)。"
             },
             "enabled": True,
             "priority": 0,
@@ -1540,7 +1554,7 @@ async def lifespan(app):
     except Exception as e:
         logger.warning(f"交易日历预热调度失败: {e}")
 
-    global scheduler, price_alert_scheduler, paper_trading_scheduler, context_maintenance_scheduler
+    global scheduler, price_alert_scheduler, breadth_scheduler, paper_trading_scheduler, context_maintenance_scheduler
     scheduler = build_scheduler()
     scheduler.start()
     logger.info("Agent 调度器已启动")
@@ -1554,6 +1568,16 @@ async def lifespan(app):
         logger.info("价格提醒调度器已启动")
     except Exception as e:
         logger.error(f"价格提醒调度器启动失败: {e}")
+    try:
+        settings = Settings()
+        breadth_scheduler = BreadthScheduler(
+            timezone=settings.app_timezone,
+            interval_seconds=60,
+        )
+        breadth_scheduler.start()
+        logger.info("市场广度调度器已启动")
+    except Exception as e:
+        logger.error(f"市场广度调度器启动失败: {e}")
     try:
         settings = Settings()
         paper_trading_scheduler = PaperTradingScheduler(
@@ -1594,6 +1618,9 @@ async def lifespan(app):
         if price_alert_scheduler:
             price_alert_scheduler.shutdown()
             logger.info("价格提醒调度器已关闭")
+        if breadth_scheduler:
+            breadth_scheduler.shutdown()
+            logger.info("市场广度调度器已关闭")
         if paper_trading_scheduler:
             paper_trading_scheduler.shutdown()
             logger.info("模拟盘调度器已关闭")

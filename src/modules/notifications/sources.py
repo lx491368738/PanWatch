@@ -48,3 +48,27 @@ def price_hit(db, hit, rule):
         correlation_id=str(hit.id), group_key=f'price_alert:{rule.id}', severity='warning',
         action=dict(kind='price_alert_hit', hit_id=hit.id, rule_id=rule.id), occurred_at=hit.trigger_time,
         template_params=dict(symbol=stock.symbol, market=stock.market, price=(hit.trigger_snapshot.get('quote') or {}).get('current_price')))
+
+
+def breadth_hit(db, hit, rule):
+    snap = hit.trigger_snapshot or {}
+    current = snap.get('current') or {}
+    return NotificationService(db).publish(
+        source='market',
+        event_type='breadth_alert_hit',
+        dedupe_key=f'breadth_alert:{hit.id}',
+        subject_kind='breadth_alert_hit',
+        subject_id=str(hit.id),
+        title=rule.name or '市场广度提醒',
+        correlation_id=str(hit.id),
+        group_key=f'breadth_alert:{rule.id}',
+        severity='warning',
+        action=dict(kind='breadth_alert_hit', hit_id=hit.id, rule_id=rule.id),
+        occurred_at=hit.trigger_time,
+        template_params=dict(
+            market=rule.market,
+            up_pct=current.get('up_pct'),
+            up=current.get('up'),
+            down=current.get('down'),
+        ),
+    )

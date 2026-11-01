@@ -132,3 +132,29 @@ async def get_market_indices():
 
     _INDICES_CACHE["indices"] = (now, result)
     return result
+
+
+@router.get("/breadth")
+async def get_market_breadth(market: str = "CN", date: str | None = None):
+    """市场涨跌家数分钟序列(公共只读)。date=YYYY-MM-DD,默认当日(上海时区)。"""
+    from src.modules.market import breadth_service as svc
+    from src.platform.persistence.database import SessionLocal
+
+    market = (market or "CN").upper()
+    if market != "CN":
+        return {"market": market, "trade_date": date or "", "current": None, "series": []}
+
+    with SessionLocal() as db:
+        created = svc.ensure_default_rules(db)
+        if created:
+            db.commit()
+        rows = svc.list_samples(db, market=market, trade_date=date)
+        series = [svc.sample_to_dict(r) for r in rows]
+        current = series[-1] if series else None
+        trade_date = date or (rows[0].trade_date if rows else svc.cn_now().date().isoformat())
+        return {
+            "market": market,
+            "trade_date": trade_date,
+            "current": current,
+            "series": series,
+        }

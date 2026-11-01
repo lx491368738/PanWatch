@@ -1,12 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { RefreshCw, AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2 } from 'lucide-react'
+import { RefreshCw, AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2, LineChart } from 'lucide-react'
 import {
   dashboardApi,
   portfolioApi,
   recommendationsApi,
   homeApi,
+  marketApi,
+  type BreadthPoint,
   type DashboardMarketIndex,
   type DashboardMarketStatus,
   type DashboardMonitorStock,
@@ -101,6 +103,7 @@ export default function DashboardPage() {
   const loadId = useRef(0)
   const benchLoadId = useRef(0)
   const [indices, setIndices] = useState<DashboardMarketIndex[]>([])
+  const [breadthCurrent, setBreadthCurrent] = useState<BreadthPoint | null>(null)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
@@ -157,6 +160,7 @@ export default function DashboardPage() {
       request.then((value) => { if (current()) apply(value) }).catch(() => {})
 
     void publish(dashboardApi.indices(), setIndices)
+    void publish(marketApi.breadth({ market: 'CN' }), (value) => setBreadthCurrent(value.current || null))
     loadBench()
 
     // DB 简报无需等待行情；先展示返回的报告，再择新回填。
@@ -478,6 +482,29 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* 市场情绪入口 */}
+      <button
+        type="button"
+        onClick={() => navigate('/market-emotion')}
+        className="card-subtle mb-3 flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-accent/40"
+      >
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <LineChart className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">{dashboardT('dashboard.marketEmotion.title')}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {dashboardT('dashboard.marketEmotion.hint')}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-muted-foreground">{dashboardT('dashboard.marketEmotion.upPct')}</div>
+          <div className={`font-mono text-sm ${moveColor(breadthCurrent?.up_pct != null ? breadthCurrent.up_pct - 50 : null)}`}>
+            {breadthCurrent?.up_pct != null ? `${breadthCurrent.up_pct.toFixed(1)}%` : '--'}
+          </div>
+        </div>
+      </button>
 
       {/* 主体:要紧事(7) | 体检(5);机会(5) | 简报(7) */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">

@@ -9,6 +9,7 @@ from marketdata.registry import PACKAGE_VENDORS_BY_TYPE
 from marketdata.symbol import Market, Symbol
 from marketdata.types import (
     Bar,
+    BreadthSnapshot,
     CapitalFlow,
     DividendItem,
     DragonTigerItem,
@@ -29,7 +30,7 @@ from marketdata.types import (
 __version__ = "0.1.0"
 
 __all__ = [
-    "MarketData", "Symbol", "Market", "Bar", "CapitalFlow", "EventItem", "FlashNews", "Fundamentals",
+    "MarketData", "Symbol", "Market", "Bar", "BreadthSnapshot", "CapitalFlow", "EventItem", "FlashNews", "Fundamentals",
     "HotStock", "HotBoard", "NewsArticle",
     "DragonTigerItem", "MarginItem", "ShareholderItem", "DividendItem", "NorthboundItem",
     "Quote", "Request", "Response",

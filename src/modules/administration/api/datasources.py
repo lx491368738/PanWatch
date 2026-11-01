@@ -29,6 +29,7 @@ TYPE_LABELS = {
     "shareholders": "股东户数",
     "dividend": "分红",
     "northbound": "北向资金",
+    "breadth": "涨跌家数",
 }
 
 
@@ -84,6 +85,7 @@ _ENGINE_ATTACHED_TYPES = {
     "shareholders",
     "dividend",
     "northbound",
+    "breadth",
 }
 
 

@@ -10,6 +10,7 @@ export const navigation = {
     paperTrading: 'Paper trading',
     assistant: 'Assistant',
     alerts: 'Alerts',
+    marketEmotion: 'Market emotion',
     agents: 'Agents',
     evaluations: 'Evaluation',
     history: 'History',

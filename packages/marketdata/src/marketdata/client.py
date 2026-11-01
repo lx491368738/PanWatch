@@ -13,6 +13,7 @@ from marketdata.ports import ConfigProvider, MetricsSink
 from marketdata.registry import build_vendors
 from marketdata.symbol import Symbol
 from marketdata.types import (
+    BreadthSnapshot,
     CapitalFlow,
     DividendItem,
     DragonTigerItem,
@@ -139,6 +140,13 @@ class MarketData:
             vendors=build_vendors("northbound"),
             config=config, metrics=self.metrics,
             cache=TTLCache(default_ttl_sec=60.0), default_ttl=60.0,
+        )
+        # 市场涨跌家数:宿主每分钟采样;包内短 TTL 防抖即可。
+        self._breadth_engine = Engine(
+            datatype="breadth",
+            vendors=build_vendors("breadth"),
+            config=config, metrics=self.metrics,
+            cache=TTLCache(default_ttl_sec=5.0), default_ttl=5.0,
         )
 
     def klines(self, symbol: str, *, market: str, days: int = 120, min_count: int = 1) -> list:
@@ -371,6 +379,12 @@ class MarketData:
         """北向资金(市场级,symbols 恒空)。照 flash_news() 无 symbols 范式。"""
         req = Request(symbols=(), market=market)
         resp = self._northbound_engine.fetch(req)
+        return resp.data or []
+
+    def breadth(self, *, market: str = "CN") -> list[BreadthSnapshot]:
+        """市场涨跌家数(市场级,symbols 恒空)。返回 list[BreadthSnapshot]。"""
+        req = Request(symbols=(), market=market)
+        resp = self._breadth_engine.fetch(req)
         return resp.data or []
 
     def health(self) -> dict[str, dict]:
