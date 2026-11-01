@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Copy, Download, ExternalLink, RefreshCw, Share2, Sparkles } from 'lucide-react'
 import {
+  capitalFlowApi,
   insightApi,
   stocksApi,
   tradingAgentsApi,
+  type CapitalFlowIntradayPoint,
   type DeepAnalysisResult,
   type HistoryComparisonResponse,
 } from '@panwatch/api'
@@ -17,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@panwatch/base-ui/components/ui/switch'
 import { SuggestionBadge, type KlineSummary, type SuggestionInfo } from '@panwatch/biz-ui/components/suggestion-badge'
 import { useToast } from '@panwatch/base-ui/components/ui/toast'
+import CapitalFlowIntradayChart from '@panwatch/biz-ui/components/CapitalFlowIntradayChart'
 import InteractiveKline from '@panwatch/biz-ui/components/InteractiveKline'
 import { KlineIndicators, localizeTechnicalStatus } from '@panwatch/biz-ui/components/kline-indicators'
 import { buildKlineSuggestion } from '@/lib/kline-scorer'
@@ -402,6 +405,11 @@ export default function StockInsightModal(props: {
   } | null>(null)
   const [holdingLoaded, setHoldingLoaded] = useState(false)
   const [holdingLoadError, setHoldingLoadError] = useState(false)
+  const [flowLoading, setFlowLoading] = useState(false)
+  const [flowEligible, setFlowEligible] = useState<boolean | null>(null)
+  const [flowPoints, setFlowPoints] = useState<CapitalFlowIntradayPoint[]>([])
+  const [flowLatest, setFlowLatest] = useState<CapitalFlowIntradayPoint | null>(null)
+  const [flowStagnant, setFlowStagnant] = useState(false)
   const autoTriggeredRef = useRef<Record<string, number>>({})
   const stockCacheRef = useRef<Record<string, StockItem>>({})
   const resolvedName = useMemo(() => props.stockName || quote?.name || symbol, [props.stockName, quote?.name, symbol])
@@ -776,7 +784,76 @@ export default function StockInsightModal(props: {
     return () => clearInterval(timer)
   }, [props.open, symbol, autoRefreshEnabled, autoRefreshSec, refreshForAuto])
 
+  useEffect(() => {
+    if (!props.open || !symbol || market !== 'CN') {
+      setFlowEligible(null)
+      setFlowPoints([])
+      setFlowLatest(null)
+      setFlowStagnant(false)
+      setFlowLoading(false)
+      return
+    }
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const clearTimer = () => {
+      if (timer != null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+
+    const tick = async (doSample: boolean) => {
+      try {
+        const data = await capitalFlowApi.intraday(symbol, { sample: doSample })
+        if (cancelled) return
+        setFlowEligible(!!data.eligible)
+        setFlowPoints(Array.isArray(data.points) ? data.points : [])
+        setFlowLatest(data.latest || null)
+        setFlowStagnant(!!data.stagnant)
+        setFlowLoading(false)
+        if (!data.eligible || !data.in_session) return
+        const waitSec = Math.max(5, Number(data.interval_sec) || 60)
+        clearTimer()
+        timer = setTimeout(() => {
+          tick(true).catch(() => undefined)
+        }, waitSec * 1000)
+      } catch {
+        if (cancelled) return
+        setFlowLoading(false)
+        clearTimer()
+        timer = setTimeout(() => {
+          tick(true).catch(() => undefined)
+        }, 60_000)
+      }
+    }
+
+    setFlowLoading(true)
+    tick(true).catch(() => undefined)
+    return () => {
+      cancelled = true
+      clearTimer()
+    }
+  }, [props.open, symbol, market])
+
   const hasHolding = !!props.hasPosition || !!holdingAgg
+  const showCapitalFlow = market === 'CN'
+  const capitalFlowPanel = showCapitalFlow ? (
+    <CapitalFlowIntradayChart
+      title={tr('capitalFlow.title')}
+      cumulativeLabel={tr('capitalFlow.cumulative')}
+      deltaLabel={tr('capitalFlow.delta')}
+      emptyLabel={tr('capitalFlow.empty')}
+      stagnantLabel={tr('capitalFlow.stagnant')}
+      ineligibleLabel={tr('capitalFlow.ineligible')}
+      loading={flowLoading}
+      english={english}
+      eligible={flowEligible}
+      stagnant={flowStagnant}
+      points={flowPoints}
+      latest={flowLatest}
+    />
+  ) : null
   const technicalScored = useMemo(() => {
     if (!klineSummary) return null
     return buildKlineSuggestion(klineSummary as any, hasHolding, klineTr)
@@ -1536,6 +1613,8 @@ export default function StockInsightModal(props: {
                   </div>
                 </div>
 
+                {capitalFlowPanel}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch">
                   <div className="card p-4 h-full flex flex-col">
                     <div className="flex items-center justify-between mb-2">
@@ -1637,12 +1716,15 @@ export default function StockInsightModal(props: {
             )}
 
             {tab === 'kline' && (
-              <div className="card p-4">
-                <InteractiveKline
-                  symbol={symbol}
-                  market={market}
-                  initialInterval={klineInterval}
-                />
+              <div className="space-y-3">
+                <div className="card p-4">
+                  <InteractiveKline
+                    symbol={symbol}
+                    market={market}
+                    initialInterval={klineInterval}
+                  />
+                </div>
+                {capitalFlowPanel}
               </div>
             )}
 

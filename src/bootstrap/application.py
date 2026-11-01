@@ -28,6 +28,7 @@ from src.modules.assistant.task_runner import assistant_task_runner
 from src.modules.assistant.export_jobs import context_export_runner
 from src.modules.automation.api import agents, suggestions, templates
 from src.modules.market.api import (
+    capital_flow,
     discovery,
     klines,
     market,
@@ -78,6 +79,12 @@ app.include_router(
 )
 app.include_router(
     klines.router, prefix="/api/klines", tags=["klines"], dependencies=protected
+)
+app.include_router(
+    capital_flow.router,
+    prefix="/api/capital-flow",
+    tags=["capital-flow"],
+    dependencies=protected,
 )
 app.include_router(
     insights.router, prefix="/api/insights", tags=["insights"], dependencies=protected
