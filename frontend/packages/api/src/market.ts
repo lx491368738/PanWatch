@@ -27,6 +27,7 @@ export interface BreadthAlertRule {
   operator: string
   threshold: number
   lookback_minutes: number
+  direction?: 'surge' | 'dump' | 'change' | 'level' | string
   market_hours_mode: 'always' | 'trading_only' | string
   cooldown_minutes: number
   max_triggers_per_day: number

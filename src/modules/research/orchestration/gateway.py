@@ -1,11 +1,15 @@
 """Request-scoped model metadata and attempt accounting over the existing candidate route."""
 import asyncio
+import logging
 
 from openai import BadRequestError
 
 from pan_investment_research import ModelReply
 
 from src.platform.ai.ai_failover import _mark_fail, _mark_ok, classify_ai_error, ERR_FATAL
+from src.platform.observability.log_context import get_log_context
+
+logger = logging.getLogger(__name__)
 
 
 class ResearchModelGateway:
@@ -32,6 +36,12 @@ class ResearchModelGateway:
         calls = [c.model_dump() for c in (message.tool_calls or [])]
         return ModelReply(message.content or "", str(getattr(reply, "model", None) or label), calls, usage, reply.choices[0].finish_reason or "")
 
+    @staticmethod
+    def _note_failure(label, exc):
+        trace_id = get_log_context().get("trace_id") or "-"
+        logger.warning("[%s] research model %s failed: %s", trace_id, label, exc)
+        _mark_fail(label)
+
     async def complete(self, *, role, messages, tools, schema, max_output_tokens, timeout, before_attempt):
         candidates = self.client._iter_candidates() if hasattr(self.client, "_iter_candidates") else [(self.client, self.client.model)]
         last_error = None
@@ -55,7 +65,7 @@ class ResearchModelGateway:
                 if not (isinstance(exc, BadRequestError) and "response_format" in str(exc).lower()):
                     if classify_ai_error(exc) == ERR_FATAL:
                         raise
-                    _mark_fail(label)
+                    self._note_failure(label, exc)
                     last_error = exc
                     continue
                 # JSON mode rejected by this endpoint: retry the same candidate without it.
@@ -65,12 +75,13 @@ class ResearchModelGateway:
                 except Exception as retry_exc:
                     if classify_ai_error(retry_exc) == ERR_FATAL:
                         raise
-                    _mark_fail(label)
+                    self._note_failure(label, retry_exc)
                     last_error = retry_exc
                     continue
                 return self._reply(reply, label)
             return self._reply(reply, label)
-        raise RuntimeError("All configured research model candidates failed") from last_error
+        detail = f"{type(last_error).__name__}: {last_error}" if last_error else "no candidates"
+        raise RuntimeError(f"All configured research model candidates failed ({detail})") from last_error
 
 
 class EvidenceTools:

@@ -60,6 +60,46 @@ function kpi(value: number | null | undefined, suffix = '') {
   return `${value}${suffix}`
 }
 
+type ChangeDirection = 'surge' | 'dump'
+
+function ruleDirection(rule: Pick<BreadthAlertRule, 'condition_type' | 'operator' | 'threshold' | 'direction'>): string {
+  if (rule.condition_type !== 'breadth_up_pct_change') return 'level'
+  if (rule.direction === 'surge' || rule.direction === 'dump' || rule.direction === 'change') {
+    return rule.direction
+  }
+  const thr = Number(rule.threshold)
+  if ((rule.operator === '<' || rule.operator === '<=') && thr < 0) return 'dump'
+  if ((rule.operator === '>' || rule.operator === '>=') && thr > 0) return 'surge'
+  return 'change'
+}
+
+function formDirection(form: FormState): ChangeDirection {
+  return (form.operator === '>' || form.operator === '>=') && form.threshold > 0 ? 'surge' : 'dump'
+}
+
+function applyChangeDirection(direction: ChangeDirection, mag = 5): Pick<FormState, 'operator' | 'threshold' | 'lookback_minutes' | 'name'> {
+  if (direction === 'surge') {
+    return {
+      operator: '>=',
+      threshold: Math.abs(mag),
+      lookback_minutes: 1,
+      name: `急涨：1分钟占比升 ≥ ${Math.abs(mag)}pp`,
+    }
+  }
+  return {
+    operator: '<=',
+    threshold: -Math.abs(mag),
+    lookback_minutes: 1,
+    name: `急跌：1分钟占比降 ≥ ${Math.abs(mag)}pp`,
+  }
+}
+
+function directionBadgeClass(direction: string): string {
+  if (direction === 'surge') return 'bg-market-up/15 text-market-up'
+  if (direction === 'dump') return 'bg-market-down/15 text-market-down'
+  return 'bg-muted text-muted-foreground'
+}
+
 export default function MarketEmotionPage() {
   const { t } = useTranslation('configuration')
   const tr = (key: string, options?: Record<string, unknown>) =>
@@ -290,23 +330,37 @@ export default function MarketEmotionPage() {
             {tr('emptyRules')}
           </div>
         ) : (
-          rules.map(rule => (
+          rules.map(rule => {
+            const direction = ruleDirection(rule)
+            const mag = Math.abs(Number(rule.threshold) || 0)
+            return (
             <div key={rule.id} className="rounded-lg border bg-card p-4 flex flex-wrap gap-3 justify-between">
               <div className="min-w-0 space-y-1">
-                <div className="font-medium flex items-center gap-2">
+                <div className="font-medium flex flex-wrap items-center gap-2">
                   <span>{rule.name || `#${rule.id}`}</span>
+                  {rule.condition_type === 'breadth_up_pct_change' ? (
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${directionBadgeClass(direction)}`}>
+                      {tr(`directions.${direction}`)}
+                    </span>
+                  ) : null}
                   <span className={`text-xs px-1.5 py-0.5 rounded ${rule.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                     {rule.enabled ? tr('enabled') : tr('paused')}
                   </span>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  {conditionLabel[rule.condition_type as keyof typeof conditionLabel] || rule.condition_type}
-                  {' '}
-                  {rule.operator}
-                  {' '}
-                  {rule.threshold}
-                  {rule.condition_type === 'breadth_up_pct_change' ? 'pp' : '%'}
-                  {rule.condition_type === 'breadth_up_pct_change' ? ` · ${rule.lookback_minutes}m` : ''}
+                  {rule.condition_type === 'breadth_up_pct_change' && (direction === 'surge' || direction === 'dump')
+                    ? tr(`directionHint.${direction}`, { mag, mins: rule.lookback_minutes || 1 })
+                    : (
+                      <>
+                        {conditionLabel[rule.condition_type as keyof typeof conditionLabel] || rule.condition_type}
+                        {' '}
+                        {rule.operator}
+                        {' '}
+                        {rule.threshold}
+                        {rule.condition_type === 'breadth_up_pct_change' ? 'pp' : '%'}
+                        {rule.condition_type === 'breadth_up_pct_change' ? ` · ${rule.lookback_minutes}m` : ''}
+                      </>
+                    )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {tr('cooldown', { minutes: rule.cooldown_minutes })}
@@ -328,7 +382,8 @@ export default function MarketEmotionPage() {
                 </Button>
               </div>
             </div>
-          ))
+            )
+          })
         )}
       </div>
 
@@ -353,55 +408,114 @@ export default function MarketEmotionPage() {
               <select
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                 value={form.condition_type}
-                onChange={e =>
+                onChange={e => {
+                  const next = e.target.value as FormState['condition_type']
+                  if (next === 'breadth_up_pct_change') {
+                    const preset = applyChangeDirection('dump', 5)
+                    setForm(prev => ({
+                      ...prev,
+                      condition_type: next,
+                      ...preset,
+                      name: prev.name.trim() ? prev.name : preset.name,
+                    }))
+                    return
+                  }
                   setForm(prev => ({
                     ...prev,
-                    condition_type: e.target.value as FormState['condition_type'],
-                    operator: e.target.value === 'breadth_up_pct_change' ? '<=' : '<',
-                    threshold: e.target.value === 'breadth_up_pct_change' ? -5 : 30,
-                    lookback_minutes: e.target.value === 'breadth_up_pct_change' ? 1 : prev.lookback_minutes,
+                    condition_type: next,
+                    operator: '<',
+                    threshold: 30,
                   }))
-                }
+                }}
               >
                 <option value="breadth_up_pct">{tr('conditions.upPct')}</option>
                 <option value="breadth_up_pct_change">{tr('conditions.upPctChange')}</option>
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm space-y-1">
-                <span>{tr('form.operator')}</span>
-                <select
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  value={form.operator}
-                  onChange={e => setForm(prev => ({ ...prev, operator: e.target.value }))}
-                >
-                  {['<', '<=', '>', '>='].map(op => (
-                    <option key={op} value={op}>{op}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm space-y-1">
-                <span>{tr('form.threshold')}</span>
-                <input
-                  type="number"
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  value={form.threshold}
-                  onChange={e => setForm(prev => ({ ...prev, threshold: Number(e.target.value) }))}
-                />
-              </label>
-            </div>
             {form.condition_type === 'breadth_up_pct_change' ? (
-              <label className="block text-sm space-y-1">
-                <span>{tr('form.lookback')}</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  value={form.lookback_minutes}
-                  onChange={e => setForm(prev => ({ ...prev, lookback_minutes: Number(e.target.value) }))}
-                />
-              </label>
-            ) : null}
+              <>
+                <label className="block text-sm space-y-1">
+                  <span>{tr('form.direction')}</span>
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={formDirection(form)}
+                    onChange={e => {
+                      const direction = e.target.value as ChangeDirection
+                      const mag = Math.abs(form.threshold) || 5
+                      const preset = applyChangeDirection(direction, mag)
+                      setForm(prev => ({
+                        ...prev,
+                        ...preset,
+                        name: prev.name.trim() && !prev.name.includes('急') ? prev.name : preset.name,
+                      }))
+                    }}
+                  >
+                    <option value="dump">{tr('directions.dump')}</option>
+                    <option value="surge">{tr('directions.surge')}</option>
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm space-y-1">
+                    <span>{tr('form.threshold')}</span>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.5}
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                      value={Math.abs(form.threshold)}
+                      onChange={e => {
+                        const mag = Math.abs(Number(e.target.value) || 0)
+                        const direction = formDirection(form)
+                        setForm(prev => ({
+                          ...prev,
+                          threshold: direction === 'surge' ? mag : -mag,
+                        }))
+                      }}
+                    />
+                  </label>
+                  <label className="block text-sm space-y-1">
+                    <span>{tr('form.lookback')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                      value={form.lookback_minutes}
+                      onChange={e => setForm(prev => ({ ...prev, lookback_minutes: Number(e.target.value) }))}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {tr(`directionHint.${formDirection(form)}`, {
+                    mag: Math.abs(form.threshold) || 5,
+                    mins: form.lookback_minutes || 1,
+                  })}
+                </p>
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-sm space-y-1">
+                  <span>{tr('form.operator')}</span>
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={form.operator}
+                    onChange={e => setForm(prev => ({ ...prev, operator: e.target.value }))}
+                  >
+                    {['<', '<=', '>', '>='].map(op => (
+                      <option key={op} value={op}>{op}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm space-y-1">
+                  <span>{tr('form.threshold')}</span>
+                  <input
+                    type="number"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={form.threshold}
+                    onChange={e => setForm(prev => ({ ...prev, threshold: Number(e.target.value) }))}
+                  />
+                </label>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm space-y-1">
                 <span>{tr('form.cooldown')}</span>

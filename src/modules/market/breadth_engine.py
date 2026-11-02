@@ -149,21 +149,33 @@ class BreadthEngine:
 
     def _payload(self, rule: BreadthAlertRule, snapshot: dict) -> tuple[str, str]:
         cur = snapshot.get("current") or {}
-        title = rule.name or "市场广度提醒"
         if rule.condition_type == "breadth_up_pct_change":
+            raw = snapshot.get("value")
+            try:
+                delta = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                delta = None
+            direction = svc.hit_direction(delta)
+            tag = {"surge": "急涨", "dump": "急跌"}.get(direction, "急变")
+            signed = (
+                f"{delta:+.1f}pp"
+                if delta is not None
+                else f"{rule.operator} {rule.threshold}pp"
+            )
+            title = f"【{tag}】{rule.name}" if rule.name else f"【{tag}】市场广度提醒"
             content = (
-                f"上涨占比 {cur.get('up_pct')}%"
-                f"（{rule.lookback_minutes} 分钟变化 {snapshot.get('value')}pp，"
-                f"阈值 {rule.operator} {rule.threshold}pp）\n"
+                f"{tag}：上涨占比 {cur.get('up_pct')}%"
+                f"（{rule.lookback_minutes} 分钟变化 {signed}）\n"
                 f"涨/跌/平 {cur.get('up')}/{cur.get('down')}/{cur.get('flat')}，"
                 f"涨停/跌停 {cur.get('limit_up')}/{cur.get('limit_down')}"
             )
-        else:
-            content = (
-                f"上涨占比 {cur.get('up_pct')}%（阈值 {rule.operator} {rule.threshold}%）\n"
-                f"涨/跌/平 {cur.get('up')}/{cur.get('down')}/{cur.get('flat')}，"
-                f"涨停/跌停 {cur.get('limit_up')}/{cur.get('limit_down')}"
-            )
+            return title, content
+        title = rule.name or "市场广度提醒"
+        content = (
+            f"上涨占比 {cur.get('up_pct')}%（阈值 {rule.operator} {rule.threshold}%）\n"
+            f"涨/跌/平 {cur.get('up')}/{cur.get('down')}/{cur.get('flat')}，"
+            f"涨停/跌停 {cur.get('limit_up')}/{cur.get('limit_down')}"
+        )
         return title, content
 
 

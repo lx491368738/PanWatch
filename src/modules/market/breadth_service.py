@@ -210,6 +210,11 @@ def serialize_rule(rule: BreadthAlertRule) -> dict[str, Any]:
         "operator": rule.operator,
         "threshold": rule.threshold,
         "lookback_minutes": rule.lookback_minutes,
+        "direction": (
+            change_direction(rule.operator, rule.threshold)
+            if rule.condition_type == "breadth_up_pct_change"
+            else "level"
+        ),
         "market_hours_mode": rule.market_hours_mode,
         "cooldown_minutes": rule.cooldown_minutes,
         "max_triggers_per_day": rule.max_triggers_per_day,
@@ -298,63 +303,131 @@ def update_rule(db: Session, rule: BreadthAlertRule, payload: dict[str, Any]) ->
     return rule
 
 
+def change_direction(operator: str, threshold: float) -> str:
+    """规则意图方向: surge=急涨 / dump=急跌 / change=未分类。"""
+    op = str(operator or "")
+    try:
+        thr = float(threshold)
+    except (TypeError, ValueError):
+        return "change"
+    if op in {"<", "<="} and thr < 0:
+        return "dump"
+    if op in {">", ">="} and thr > 0:
+        return "surge"
+    return "change"
+
+
+def hit_direction(value: float | None) -> str:
+    """命中实测方向(按变化值正负)。"""
+    if value is None:
+        return "change"
+    if value > 0:
+        return "surge"
+    if value < 0:
+        return "dump"
+    return "change"
+
+
 def _default_name(cond: dict[str, Any]) -> str:
     if cond["condition_type"] == "breadth_up_pct_change":
-        return f"上涨占比{cond['lookback_minutes']}分钟变化 {cond['operator']} {cond['threshold']}pp"
+        direction = change_direction(cond["operator"], cond["threshold"])
+        mins = cond["lookback_minutes"]
+        mag = abs(float(cond["threshold"]))
+        if direction == "dump":
+            return f"急跌：{mins}分钟占比降 ≥ {mag:g}pp"
+        if direction == "surge":
+            return f"急涨：{mins}分钟占比升 ≥ {mag:g}pp"
+        return f"急变：{mins}分钟占比变化 {cond['operator']} {cond['threshold']}pp"
     return f"上涨占比 {cond['operator']} {cond['threshold']}%"
+
+
+_DUMP_RULE_NAME = "急跌：1分钟占比降 ≥ 5pp"
+_SURGE_RULE_NAME = "急涨：1分钟占比升 ≥ 5pp"
+_LEGACY_DUMP_NAMES = {
+    "急变：5分钟占比降 ≥ 10pp",
+    "急变：1分钟占比降 ≥ 10pp",
+    "急变：1分钟占比降 ≥ 5pp",
+}
 
 
 def ensure_default_rules(db: Session) -> list[BreadthAlertRule]:
     """种子默认规则(无渠道也可入库)。调用方负责 commit。
 
-    若已存在旧默认急变规则(5 分钟窗口),就地升级为 1 分钟；返回值非空表示有写入。
+    升级旧急变命名为急跌,并补齐急涨默认规则；返回值非空表示有写入。
     """
     touched: list[BreadthAlertRule] = []
-    legacy_names = {
-        "急变：5分钟占比降 ≥ 10pp",
-        "急变：1分钟占比降 ≥ 10pp",
-    }
     legacy = (
         db.query(BreadthAlertRule)
         .filter(
             BreadthAlertRule.condition_type == "breadth_up_pct_change",
-            BreadthAlertRule.name.in_(legacy_names),
+            BreadthAlertRule.name.in_(_LEGACY_DUMP_NAMES),
         )
         .all()
     )
     for rule in legacy:
-        rule.name = "急变：1分钟占比降 ≥ 5pp"
+        rule.name = _DUMP_RULE_NAME
         rule.lookback_minutes = 1
         rule.operator = "<="
         rule.threshold = -5.0
         touched.append(rule)
 
     existing = db.query(BreadthAlertRule).count()
-    if existing:
-        return touched
-    return [
-        create_rule(
-            db,
-            {
-                "name": "弱势：上涨占比 < 30%",
-                "condition_type": "breadth_up_pct",
-                "operator": "<",
-                "threshold": 30.0,
-                "notify_channel_ids": [],
-            },
-        ),
-        create_rule(
-            db,
-            {
-                "name": "急变：1分钟占比降 ≥ 5pp",
-                "condition_type": "breadth_up_pct_change",
-                "operator": "<=",
-                "threshold": -5.0,
-                "lookback_minutes": 1,
-                "notify_channel_ids": [],
-            },
-        ),
-    ]
+    if existing == 0:
+        return [
+            create_rule(
+                db,
+                {
+                    "name": "弱势：上涨占比 < 30%",
+                    "condition_type": "breadth_up_pct",
+                    "operator": "<",
+                    "threshold": 30.0,
+                    "notify_channel_ids": [],
+                },
+            ),
+            create_rule(
+                db,
+                {
+                    "name": _DUMP_RULE_NAME,
+                    "condition_type": "breadth_up_pct_change",
+                    "operator": "<=",
+                    "threshold": -5.0,
+                    "lookback_minutes": 1,
+                    "notify_channel_ids": [],
+                },
+            ),
+            create_rule(
+                db,
+                {
+                    "name": _SURGE_RULE_NAME,
+                    "condition_type": "breadth_up_pct_change",
+                    "operator": ">=",
+                    "threshold": 5.0,
+                    "lookback_minutes": 1,
+                    "notify_channel_ids": [],
+                },
+            ),
+        ]
+
+    has_surge = (
+        db.query(BreadthAlertRule.id)
+        .filter(BreadthAlertRule.name == _SURGE_RULE_NAME)
+        .first()
+    )
+    if has_surge is None:
+        touched.append(
+            create_rule(
+                db,
+                {
+                    "name": _SURGE_RULE_NAME,
+                    "condition_type": "breadth_up_pct_change",
+                    "operator": ">=",
+                    "threshold": 5.0,
+                    "lookback_minutes": 1,
+                    "notify_channel_ids": [],
+                },
+            )
+        )
+    return touched
 
 
 def compare(op: str, left: float, right: float) -> bool:
