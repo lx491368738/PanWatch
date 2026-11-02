@@ -88,26 +88,40 @@ export default function MarketEmotionPage() {
     [t],
   )
 
-  const load = async () => {
-    setLoading(true)
+  const load = async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent)
+    if (!silent) setLoading(true)
     try {
-      const [b, r, c] = await Promise.all([
-        marketApi.breadth({ market: 'CN' }),
-        marketApi.listBreadthAlerts(),
-        fetchAPI<NotifyChannel[]>('/channels'),
-      ])
-      setBreadth(b)
-      setRules(r || [])
-      setChannels(c || [])
+      if (silent) {
+        // 定时刷新只拉曲线，避免整页闪烁和多余渠道请求。
+        const b = await marketApi.breadth({ market: 'CN' })
+        setBreadth(b)
+      } else {
+        const [b, r, c] = await Promise.all([
+          marketApi.breadth({ market: 'CN' }),
+          marketApi.listBreadthAlerts(),
+          fetchAPI<NotifyChannel[]>('/channels'),
+        ])
+        setBreadth(b)
+        setRules(r || [])
+        setChannels(c || [])
+      }
     } catch (e) {
-      toast(e instanceof Error ? e.message : tr('messages.loadFailed'), 'error')
+      if (!silent) {
+        toast(e instanceof Error ? e.message : tr('messages.loadFailed'), 'error')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
     void load()
+    // 与开盘加密采样对齐：约 15s 静默刷新折线。
+    const timer = window.setInterval(() => {
+      void load({ silent: true })
+    }, 15_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const openCreate = () => {
@@ -260,7 +274,11 @@ export default function MarketEmotionPage() {
         {loading ? (
           <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">{tr('loading')}</div>
         ) : (
-          <BreadthChart series={series} ariaLabel={tr('chartTitle')} />
+          <BreadthChart
+            series={series}
+            ariaLabel={tr('chartTitle')}
+            labels={{ up: tr('kpi.up'), upPct: tr('kpi.upPct') }}
+          />
         )}
         <p className="text-xs text-muted-foreground mt-2">{tr('footnote')}</p>
       </div>
