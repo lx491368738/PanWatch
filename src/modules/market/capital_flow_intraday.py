@@ -24,8 +24,14 @@ DENSE_INTERVAL_SEC = 15
 NORMAL_INTERVAL_SEC = 60
 # 连续相同净值点数达到该阈值则视为停滞
 STAGNANT_MIN_POINTS = 3
-# 采样专用短 TTL，避免命中日级 600s 缓存
-SAMPLE_FETCH_TTL_SEC = 5.0
+# 采样专用短 TTL：须短于采样间隔，又避免同轮/紧邻 tick 重复打源站
+SAMPLE_FETCH_TTL_SEC = 12.0
+# 单轮最多拉几只，避免自选一多打爆东财（其余留给下一 15s tick 轮转）
+MAX_SAMPLES_PER_TICK = 6
+
+_LOCK = threading.Lock()
+_SERIES: dict[str, SymbolSeries] = {}
+_RR_CURSOR = 0
 
 
 @dataclass
@@ -40,10 +46,6 @@ class SymbolSeries:
     symbol: str
     trade_date: str
     points: list[FlowPoint] = field(default_factory=list)
-
-
-_LOCK = threading.Lock()
-_SERIES: dict[str, SymbolSeries] = {}
 
 
 def _cn_now(now: datetime | None = None) -> datetime:
@@ -123,19 +125,63 @@ def list_cn_watchlist_symbols(db=None) -> list[str]:
             session.close()
 
 
+def _symbols_due(symbols: list[str], now: datetime) -> list[str]:
+    """仅返回已到采样间隔的标的，避免无意义打源。"""
+    interval = sample_interval_sec(now)
+    due: list[str] = []
+    for symbol in symbols:
+        points = get_series(symbol, now=now).points
+        elapsed = _seconds_since_last(points, now)
+        if elapsed is None or elapsed + 1e-6 >= interval:
+            due.append(symbol)
+    return due
+
+
 def sample_watchlist_once(*, now: datetime | None = None, fetch_flow=None) -> dict:
-    """对关注∪持仓中的 CN 标的按间隔尝试追加采样点。"""
+    """对关注∪持仓中的 CN 标的按间隔尝试追加采样点（轮转限流）。"""
+    global _RR_CURSOR
     dt = _cn_now(now)
     if not in_cn_trading_session(dt):
-        return {"sampled": 0, "checked": 0, "skipped_session": True}
+        return {"sampled": 0, "checked": 0, "due": 0, "skipped_session": True}
+
     symbols = list_cn_watchlist_symbols()
+    due = _symbols_due(symbols, dt)
+    if not due:
+        return {"sampled": 0, "checked": len(symbols), "due": 0, "skipped_session": False}
+
+    # 轮转：每 tick 最多采 MAX_SAMPLES_PER_TICK 只，把压力摊到多个 15s 窗口
+    start = _RR_CURSOR % len(due)
+    ordered = due[start:] + due[:start]
+    batch = ordered[:MAX_SAMPLES_PER_TICK]
+    _RR_CURSOR = (start + len(batch)) % max(len(due), 1)
+
     sampled = 0
-    for symbol in symbols:
-        before = len(get_series(symbol, now=dt).points)
-        series = maybe_append_sample(symbol, now=dt, fetch_flow=fetch_flow)
-        if len(series.points) > before:
-            sampled += 1
-    return {"sampled": sampled, "checked": len(symbols), "skipped_session": False}
+    try:
+        from marketdata.http import fetch_source
+    except Exception:  # pragma: no cover
+        fetch_source = None
+
+    def _run():
+        nonlocal sampled
+        for symbol in batch:
+            before = len(get_series(symbol, now=dt).points)
+            series = maybe_append_sample(symbol, now=dt, fetch_flow=fetch_flow)
+            if len(series.points) > before:
+                sampled += 1
+
+    if fetch_source is not None:
+        with fetch_source("capital_flow_intraday"):
+            _run()
+    else:
+        _run()
+
+    return {
+        "sampled": sampled,
+        "checked": len(symbols),
+        "due": len(due),
+        "batch": len(batch),
+        "skipped_session": False,
+    }
 
 
 def _series_key(symbol: str) -> str:
@@ -219,10 +265,12 @@ def maybe_append_sample(
         if elapsed is not None and elapsed + 1e-6 < interval:
             return SymbolSeries(symbol=series.symbol, trade_date=series.trade_date, points=list(series.points))
 
-    # 网络 IO 放锁外
+    # 网络 IO 放锁外；TTL 略短于当前间隔，避免 15s 密集窗被长缓存挡住
+    interval = sample_interval_sec(dt)
+    fetch_ttl = min(SAMPLE_FETCH_TTL_SEC, max(3.0, float(interval) - 3.0))
     if fetch_flow is None:
         collector = CapitalFlowCollector(MarketCode.CN)
-        flow = collector.get_capital_flow(key, ttl_sec=SAMPLE_FETCH_TTL_SEC)
+        flow = collector.get_capital_flow(key, ttl_sec=fetch_ttl)
     else:
         flow = fetch_flow(key)
 

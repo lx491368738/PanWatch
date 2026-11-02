@@ -128,6 +128,7 @@ def test_sample_watchlist_once_covers_all_symbols(monkeypatch):
     monkeypatch.setattr(cf, "in_cn_trading_session", lambda now=None: True)
     monkeypatch.setattr(cf, "sample_interval_sec", lambda now=None: 1)
     monkeypatch.setattr(cf, "list_cn_watchlist_symbols", lambda db=None: ["600519", "000001"])
+    monkeypatch.setattr(cf, "MAX_SAMPLES_PER_TICK", 10)
     values = {"600519": 10.0, "000001": 20.0}
 
     result = cf.sample_watchlist_once(
@@ -139,6 +140,28 @@ def test_sample_watchlist_once_covers_all_symbols(monkeypatch):
     assert result["sampled"] == 2
     assert len(cf.get_series("600519").points) == 1
     assert len(cf.get_series("000001").points) == 1
+
+
+def test_sample_watchlist_once_rotates_batch(monkeypatch):
+    monkeypatch.setattr(cf, "in_cn_trading_session", lambda now=None: True)
+    monkeypatch.setattr(cf, "sample_interval_sec", lambda now=None: 1)
+    monkeypatch.setattr(cf, "list_cn_watchlist_symbols", lambda db=None: [f"s{i}" for i in range(5)])
+    monkeypatch.setattr(cf, "MAX_SAMPLES_PER_TICK", 2)
+    cf._RR_CURSOR = 0
+    fetched: list[str] = []
+
+    def fetch(sym):
+        fetched.append(sym)
+        return SimpleNamespace(main_net_inflow=1.0)
+
+    t0 = datetime(2026, 11, 2, 10, 0, tzinfo=CN)
+    r1 = cf.sample_watchlist_once(now=t0, fetch_flow=fetch)
+    assert r1["batch"] == 2
+    assert fetched == ["s0", "s1"]
+    r2 = cf.sample_watchlist_once(now=datetime(2026, 11, 2, 10, 0, 30, tzinfo=CN), fetch_flow=fetch)
+    # s0/s1 尚未到下一间隔；due 只剩 s2..，轮转继续
+    assert r2["sampled"] >= 1
+    assert "s2" in fetched
 
 
 def test_sample_watchlist_once_skips_outside_session(monkeypatch):

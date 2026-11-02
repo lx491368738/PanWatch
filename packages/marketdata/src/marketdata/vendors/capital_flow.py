@@ -11,7 +11,8 @@ from marketdata.vendors.base import CapitalFlowVendor
 
 _EASTMONEY_FLOW_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
 _FLOW_HOST = "push2his.eastmoney.com"
-_FLOW_MIN_INTERVAL_S = 0.2
+# 盘中后台会对自选批量打 fflow；0.2s 过密易被对端掐连接（Server disconnected）。
+_FLOW_MIN_INTERVAL_S = 0.45
 
 _SINA_FLOW_URL = (
     "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
@@ -71,8 +72,10 @@ class EastmoneyCapitalFlowVendor(CapitalFlowVendor):
             params=params,
             headers=headers,
             min_interval_s=_FLOW_MIN_INTERVAL_S,
-            timeout=8,
-            retries=2,
+            timeout=10,
+            retries=3,
+            backoff=0.6,
+            total_timeout=28.0,
             parse="json",
             symbol=sym.code,
             log_label="资金流",
