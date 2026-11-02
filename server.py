@@ -30,6 +30,7 @@ from src.platform.notifications.notifier import NotifierManager
 from src.modules.automation.agent_scheduler import AgentScheduler
 from src.modules.market.price_alert_scheduler import PriceAlertScheduler
 from src.modules.market.breadth_scheduler import BreadthScheduler
+from src.modules.market.capital_flow_intraday_scheduler import CapitalFlowIntradayScheduler
 from src.modules.paper_trading.paper_trading_scheduler import PaperTradingScheduler
 from src.modules.research.context_scheduler import ContextMaintenanceScheduler
 from src.modules.automation.agent_runs import record_agent_run
@@ -52,6 +53,7 @@ logger = logging.getLogger(__name__)
 scheduler: AgentScheduler | None = None
 price_alert_scheduler: PriceAlertScheduler | None = None
 breadth_scheduler: BreadthScheduler | None = None
+capital_flow_intraday_scheduler: CapitalFlowIntradayScheduler | None = None
 paper_trading_scheduler: PaperTradingScheduler | None = None
 context_maintenance_scheduler: ContextMaintenanceScheduler | None = None
 
@@ -1554,7 +1556,7 @@ async def lifespan(app):
     except Exception as e:
         logger.warning(f"交易日历预热调度失败: {e}")
 
-    global scheduler, price_alert_scheduler, breadth_scheduler, paper_trading_scheduler, context_maintenance_scheduler
+    global scheduler, price_alert_scheduler, breadth_scheduler, capital_flow_intraday_scheduler, paper_trading_scheduler, context_maintenance_scheduler
     scheduler = build_scheduler()
     scheduler.start()
     logger.info("Agent 调度器已启动")
@@ -1578,6 +1580,16 @@ async def lifespan(app):
         logger.info("市场广度调度器已启动")
     except Exception as e:
         logger.error(f"市场广度调度器启动失败: {e}")
+    try:
+        settings = Settings()
+        capital_flow_intraday_scheduler = CapitalFlowIntradayScheduler(
+            timezone=settings.app_timezone,
+            interval_seconds=60,
+        )
+        capital_flow_intraday_scheduler.start()
+        logger.info("资金流盘中采样调度器已启动")
+    except Exception as e:
+        logger.error(f"资金流盘中采样调度器启动失败: {e}")
     try:
         settings = Settings()
         paper_trading_scheduler = PaperTradingScheduler(
@@ -1621,6 +1633,9 @@ async def lifespan(app):
         if breadth_scheduler:
             breadth_scheduler.shutdown()
             logger.info("市场广度调度器已关闭")
+        if capital_flow_intraday_scheduler:
+            capital_flow_intraday_scheduler.shutdown()
+            logger.info("资金流盘中采样调度器已关闭")
         if paper_trading_scheduler:
             paper_trading_scheduler.shutdown()
             logger.info("模拟盘调度器已关闭")

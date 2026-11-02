@@ -17,10 +17,11 @@ def get_capital_flow_intraday(
     symbol: str,
     sample: bool = Query(
         False,
-        description="为 true 且处于交易时段时尝试追加一个采样点；收盘后只读缓存",
+        description="兼容参数：后台调度负责采样；为 true 时仍可手动补采一点（调试用）",
     ),
     db: Session = Depends(get_db),
 ):
+    """读取当日已采曲线。正常路径由 CapitalFlowIntradayScheduler 后台写入。"""
     sym = str(symbol or "").strip()
     if not sym:
         raise api_error(400, "symbol_required", "股票代码不能为空")

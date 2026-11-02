@@ -26,11 +26,27 @@ def _isolate_startup(monkeypatch, server):
         Mock(side_effect=lambda db: initialization.append("recover_interrupted_analysis")),
     )
     monkeypatch.setattr(server, "Settings", lambda: SimpleNamespace(app_timezone="Asia/Shanghai"))
-    schedulers = [Mock() for _ in range(4)]
+    schedulers = [Mock() for _ in range(6)]
     monkeypatch.setattr(server, "build_scheduler", lambda: schedulers[0])
-    for index, name in enumerate(("PriceAlertScheduler", "PaperTradingScheduler", "ContextMaintenanceScheduler"), start=1):
+    for index, name in enumerate(
+        (
+            "PriceAlertScheduler",
+            "BreadthScheduler",
+            "CapitalFlowIntradayScheduler",
+            "PaperTradingScheduler",
+            "ContextMaintenanceScheduler",
+        ),
+        start=1,
+    ):
         monkeypatch.setattr(server, name, lambda _index=index, **kwargs: schedulers[_index])
-    for name in ("scheduler", "price_alert_scheduler", "paper_trading_scheduler", "context_maintenance_scheduler"):
+    for name in (
+        "scheduler",
+        "price_alert_scheduler",
+        "breadth_scheduler",
+        "capital_flow_intraday_scheduler",
+        "paper_trading_scheduler",
+        "context_maintenance_scheduler",
+    ):
         monkeypatch.setattr(server, name, None)
     import threading
     from src.modules.administration.api import auth

@@ -803,33 +803,36 @@ export default function StockInsightModal(props: {
       }
     }
 
-    const tick = async (doSample: boolean) => {
+    // 只读后台已采曲线；采样由服务端调度器完成，弹窗不触发 sample。
+    const tick = async () => {
       try {
-        const data = await capitalFlowApi.intraday(symbol, { sample: doSample })
+        const data = await capitalFlowApi.intraday(symbol)
         if (cancelled) return
         setFlowEligible(!!data.eligible)
         setFlowPoints(Array.isArray(data.points) ? data.points : [])
         setFlowLatest(data.latest || null)
         setFlowStagnant(!!data.stagnant)
         setFlowLoading(false)
-        if (!data.eligible || !data.in_session) return
-        const waitSec = Math.max(5, Number(data.interval_sec) || 60)
+        if (!data.eligible) return
+        const waitSec = data.in_session
+          ? Math.max(5, Number(data.interval_sec) || 60)
+          : 120
         clearTimer()
         timer = setTimeout(() => {
-          tick(true).catch(() => undefined)
+          tick().catch(() => undefined)
         }, waitSec * 1000)
       } catch {
         if (cancelled) return
         setFlowLoading(false)
         clearTimer()
         timer = setTimeout(() => {
-          tick(true).catch(() => undefined)
+          tick().catch(() => undefined)
         }, 60_000)
       }
     }
 
     setFlowLoading(true)
-    tick(true).catch(() => undefined)
+    tick().catch(() => undefined)
     return () => {
       cancelled = true
       clearTimer()

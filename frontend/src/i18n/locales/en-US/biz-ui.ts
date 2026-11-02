@@ -288,7 +288,7 @@ export const bizUi = {
       title: 'Main-force net inflow (intraday samples)',
       cumulative: 'Cumulative',
       delta: 'vs last',
-      empty: 'Sampling starts when this dialog opens; need at least 2 points to draw',
+      empty: 'Sampled in the background during the session; need at least 2 points to draw',
       stagnant: 'Upstream value unchanged',
       ineligible: 'Shown only for A-shares on the watchlist or in holdings',
     },

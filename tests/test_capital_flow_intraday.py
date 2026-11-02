@@ -122,3 +122,32 @@ def test_day_rollover_clears_points(monkeypatch):
     next_day = cf.get_series("600519", now=datetime(2026, 11, 3, 10, 0, tzinfo=CN))
     assert next_day.trade_date == "2026-11-03"
     assert next_day.points == []
+
+
+def test_sample_watchlist_once_covers_all_symbols(monkeypatch):
+    monkeypatch.setattr(cf, "in_cn_trading_session", lambda now=None: True)
+    monkeypatch.setattr(cf, "sample_interval_sec", lambda now=None: 1)
+    monkeypatch.setattr(cf, "list_cn_watchlist_symbols", lambda db=None: ["600519", "000001"])
+    values = {"600519": 10.0, "000001": 20.0}
+
+    result = cf.sample_watchlist_once(
+        now=datetime(2026, 11, 2, 10, 0, tzinfo=CN),
+        fetch_flow=lambda sym: SimpleNamespace(main_net_inflow=values[sym]),
+    )
+    assert result["skipped_session"] is False
+    assert result["checked"] == 2
+    assert result["sampled"] == 2
+    assert len(cf.get_series("600519").points) == 1
+    assert len(cf.get_series("000001").points) == 1
+
+
+def test_sample_watchlist_once_skips_outside_session(monkeypatch):
+    monkeypatch.setattr(cf, "in_cn_trading_session", lambda now=None: False)
+    monkeypatch.setattr(
+        cf,
+        "list_cn_watchlist_symbols",
+        lambda db=None: (_ for _ in ()).throw(AssertionError("should not list")),
+    )
+    result = cf.sample_watchlist_once(now=datetime(2026, 11, 2, 16, 0, tzinfo=CN))
+    assert result["skipped_session"] is True
+    assert result["sampled"] == 0

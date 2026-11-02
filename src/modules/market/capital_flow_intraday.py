@@ -1,7 +1,8 @@
-"""Intraday 主力净流入采样：进程内当日短缓存，弹窗按需触发。
+"""Intraday 主力净流入采样：进程内当日短缓存，交易时段后台常驻记录。
 
 无分钟资金流序列时，复用日级 CapitalFlow.main_net_inflow 快照按时段表拼点：
 09:30–10:00 ≈15s；其余交易时段 ≈60s；午休与非交易时段不采。
+覆盖关注 ∪ 持仓中的 A 股；详情弹窗只读已采曲线。
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from src.platform.marketdata.collectors.capital_flow_collector import CapitalFlowCollector
 from src.platform.marketdata.models import MarketCode
+from src.platform.persistence.database import SessionLocal
 from src.platform.persistence.models import Stock
 from src.platform.scheduling import trading_calendar
 
@@ -94,6 +96,46 @@ def is_watchlist_or_holding_cn(db, symbol: str) -> bool:
         .first()
     )
     return row is not None
+
+
+def list_cn_watchlist_symbols(db=None) -> list[str]:
+    """全部 CN 自选代码（含持仓标的）。"""
+    owns_session = db is None
+    session = db if db is not None else SessionLocal()
+    try:
+        rows = (
+            session.query(Stock.symbol)
+            .filter(Stock.market == MarketCode.CN.value)
+            .order_by(Stock.sort_order.asc(), Stock.id.asc())
+            .all()
+        )
+        out: list[str] = []
+        seen: set[str] = set()
+        for (symbol,) in rows:
+            sym = str(symbol or "").strip()
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            out.append(sym)
+        return out
+    finally:
+        if owns_session:
+            session.close()
+
+
+def sample_watchlist_once(*, now: datetime | None = None, fetch_flow=None) -> dict:
+    """对关注∪持仓中的 CN 标的按间隔尝试追加采样点。"""
+    dt = _cn_now(now)
+    if not in_cn_trading_session(dt):
+        return {"sampled": 0, "checked": 0, "skipped_session": True}
+    symbols = list_cn_watchlist_symbols()
+    sampled = 0
+    for symbol in symbols:
+        before = len(get_series(symbol, now=dt).points)
+        series = maybe_append_sample(symbol, now=dt, fetch_flow=fetch_flow)
+        if len(series.points) > before:
+            sampled += 1
+    return {"sampled": sampled, "checked": len(symbols), "skipped_session": False}
 
 
 def _series_key(symbol: str) -> str:

@@ -285,7 +285,7 @@ export const bizUi = {
       title: '主力净流入（当日采样）',
       cumulative: '累计',
       delta: '较上点',
-      empty: '打开详情后开始采样，需至少 2 个点才能画线',
+      empty: '交易时段后台自动采样中，需至少 2 个点才能画线',
       stagnant: '源数据未见更新',
       ineligible: '仅关注或持仓中的 A 股显示资金流曲线',
     },
