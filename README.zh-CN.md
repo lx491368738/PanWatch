@@ -226,17 +226,34 @@ docker compose up -d
 **环境要求**：Python 3.11+ / Node.js 24.14.0 / pnpm 9.15.9
 
 ```bash
-# 一键开发（推荐）
-make dev-api          # 启动后端（自动 venv+依赖，监听 :8000）
+# 一键开发（推荐；需已安装 make）
+make dev-api          # 启动后端（自动 venv+依赖，监听 :8000，开启热重载）
 make dev-web          # 启动前端（自动 pnpm install，监听 :5183）
 
-# 或手动
-python -m venv venv && source venv/bin/activate
+# 或手动（Linux/macOS）
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python server.py                              # 后端 :8000
+DEV_RELOAD=1 python server.py                 # 后端 :8000（热重载，等同 make dev-api 的启动方式）
+# 不加 DEV_RELOAD 则为生产形态启动（无热重载）
 
 cd frontend && pnpm install && pnpm dev       # 前端 :5183
 ```
+
+**Windows（未安装 make 时）**用 PowerShell，在仓库根目录：
+
+```powershell
+# 后端（等同 make dev-api 的启动方式：DEV_RELOAD=1 开启热重载）
+cd D:\workspace\PanWatch
+$env:DEV_RELOAD = "1"
+.\.venv\Scripts\python.exe server.py
+
+# 前端（等同 make dev-web）
+cd D:\workspace\PanWatch\frontend
+pnpm install
+pnpm dev
+```
+
+首次需先建好 `.venv` 并安装依赖：`python -m venv .venv`，再 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。`make dev-api` 还会自动做这一步；上面的 PowerShell 命令假定 venv 已就绪。
 
 前端 dev server 跑在 `http://localhost:5183`，并把 `/api` 代理到 `127.0.0.1:8000`。
 

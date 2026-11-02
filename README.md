@@ -230,17 +230,34 @@ Select the brain icon beside a holding to start TradingAgents deep analysis. Fou
 **Requirements:** Python 3.11+ / Node.js 24.14.0 / pnpm 9.15.9
 
 ```bash
-# One-command development setup (recommended)
-make dev-api          # Backend with automatic venv/dependencies on :8000
+# One-command development setup (recommended; requires make)
+make dev-api          # Backend with automatic venv/dependencies on :8000 (hot reload)
 make dev-web          # Frontend with automatic pnpm install on :5183
 
-# Or start each service manually
-python -m venv venv && source venv/bin/activate
+# Or start each service manually (Linux/macOS)
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python server.py                              # Backend on :8000
+DEV_RELOAD=1 python server.py                 # Backend on :8000 (hot reload; same as make dev-api)
+# Omit DEV_RELOAD for production-style startup (no reload)
 
 cd frontend && pnpm install && pnpm dev       # Frontend on :5183
 ```
+
+**Windows without make** — from the repo root in PowerShell:
+
+```powershell
+# Backend (same runtime mode as make dev-api: DEV_RELOAD=1)
+cd D:\workspace\PanWatch
+$env:DEV_RELOAD = "1"
+.\.venv\Scripts\python.exe server.py
+
+# Frontend (same as make dev-web)
+cd D:\workspace\PanWatch\frontend
+pnpm install
+pnpm dev
+```
+
+Create the venv first if needed: `python -m venv .venv`, then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`. `make dev-api` also bootstraps that; the PowerShell commands assume `.venv` already exists.
 
 The frontend development server runs at `http://localhost:5183` and proxies `/api` to `127.0.0.1:8000`.
 
